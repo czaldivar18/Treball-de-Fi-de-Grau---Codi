@@ -1,0 +1,214 @@
+---
+title: "ScriptPart2"
+author: "Clara Zaldivar"
+date: "11/2/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+1. Instalem els paquets necessaris
+
+```{r}
+library("readxl")
+library('tseries')
+library('forecast')
+library("fBasics")
+library("ggplot2")
+library("neuralnet")
+install.packages("tidyverse")
+library(tidyverse)
+install.packages("tidymodels")
+library(tidymodels)
+install.packages("data.table")
+library(data.table)
+install.packages("tidyposterior")
+library(tidyposterior)
+install.packages("tsibble")
+library(tsibble)  #tsibble for time series based on tidy principles
+install.packages("fable")
+library(fable)  #for forecasting based on tidy principles
+install.packages("ggfortify")
+library(ggfortify)  #for plotting timeseries
+install.packages("chron")
+library(chron)
+install.packages("lubridate")
+library(lubridate)
+install.packages("zoo")
+library(zoo)
+install.packages("directlabels")
+library(directlabels)
+install.packages("lmtest")
+library(lmtest)
+install.packages("TTR")
+library(TTR)  #for smoothing the time series
+install.packages("MTS")
+library(MTS)
+install.packages("vars")
+library(vars)
+install.packages("fUnitRoots")
+library(fUnitRoots)
+install.packages("lattice")
+library(lattice)
+install.packages("grid")
+library(grid)
+library(scales)
+```
+
+```{r}
+library(ggthemes)
+library(forecast)
+#library(tidyverse)
+library(tseries)
+library(lubridate)
+install.packages("themetk")
+library(timetk)
+library(readxl)
+library(tidyquant)
+library(scales)
+library(forecast)   #  forecasting pkg
+library(sweep)   # Broom tidiers for forecast pkg
+library(broom)
+library(tibble)
+library(stringr)
+library(highcharter)
+library(knitr)
+```
+
+2. Carreguem les dades
+```{r}
+tipologia<-read.csv2("tipologia.csv", stringsAsFactors = FALSE)
+
+df <- ts(matrix(tipologia$TOTAL), frequency =12, start=c(2000,1), end=c(2019,12))
+
+```
+
+
+
+```{r}
+
+
+
+train<-ts(tipologia$TOTAL, frequency =12, start=c(2000,1), end=c(2018,12))
+test<-ts(tipologia$TOTAL[229:240], frequency =12, start=c(2019,1), end=c(2019,12))
+
+
+autoplot(train) + ggtitle("Total de turistes") + 
+        xlab("Any") + ylab("Nombre de turistes")
+```
+
+
+
+
+
+Neural Network Auto-Regressive (NNAR) model
+
+
+
+```{r}
+set.seed(34)
+```
+
+```{r}
+fit <- nnetar(train, lambda="auto") 
+fit
+
+```
+```{r}
+fit$lambda
+```
+
+
+```{r}
+fcast <- forecast(fit, PI=TRUE, h=12)
+fcast
+
+ts.plot(df,fcast$mean,col=1:2, main="Predicció -  NNAR(5,1,4)[12]", ylab="Número de turistes", xlab="Any"  )
+
+
+
+
+nnar <- cbind(df, fcast$mean)
+nnar 
+
+
+dygraph(nnar , main="Predicció -  NNAR(5,1,4)[12]") %>%
+  dySeries("df", label = "Real") %>%
+  dySeries("fcast$mean", label = "Predicció") %>%
+  dyAxis("x", drawGrid = FALSE, label="Any", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Nombre de turistes")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "M",  drawPoints = TRUE, pointSize = 2)
+
+
+nnar2019 <- cbind(df[229:240], fcast$mean)
+nnar2019 
+
+
+dygraph(nnar2019 , main="Predicció (Any 2019) -  NNAR(5,1,4)[12]") %>%
+  dySeries("df[229:240]", label = "Real") %>%
+  dySeries("fcast$mean", label = "Predicció") %>%
+  dyAxis("x", drawGrid = FALSE, label="Any", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Nombre de turistes")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "M",  drawPoints = TRUE, pointSize = 2)
+
+
+
+```
+
+
+```{r}
+errors<-test[1:12]-fcast$mean[1:12]
+errors
+
+errors<-ts(matrix(errors), frequency =12, start=c(2019,1), end=c(2019,12))
+ts.plot(errors,col=2, main="Errors Predicció - NNAR(5,1,4)[12]")
+
+dygraph(errors, main="Errors Predicció - NNAR(5,1,4)[12]") %>%
+  dyAxis("x", drawGrid = FALSE, label="Mes", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Errors")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "K", drawPoints = TRUE, pointSize = 2)
+
+eqm<-sum(errors*errors)/12
+eqm
+reqm<-eqm^(.5)
+
+eam<-sum(abs(errors))/12
+eam
+epam<-sum(abs(errors)/abs(test))/12
+epam*100
+
+rmse(test[1:12], fcast$mean[1:12])
+
+resultats_nn<- data.frame(fcast$mean, test, errors)
+colnames(resultats_nn)<-c("Predicció", "Valor Real", "Error")
+rownames(resultats_nn)<-c('Gener','Febrer','Març','Abril','Maig','Juny','Juliol','Agost','Setembre','Octubre','Novembre','Desembre')
+view(resultats_nn)
+```
+
+
+
+```{r}
+set.seed(34)
+train<-ts(matrix(tipologia$TOTAL), frequency =12, start=c(2000,1), end=c(2018,12))
+fit <- nnetar(train, lambda="auto") 
+fcast <- forecast(fit, PI=TRUE, h=12)
+
+
+#predicciones hechas a partir enero 2020 hasta diciembre 2020
+resultados <- data.frame(fcast$mean, row.names = c('Gener','Febrer','Març','Abril','Maig','Juny','Juliol','Agost','Setembre','Octubre','Novembre','Desembre'))
+v<-c()
+for (i in 1:11)
+{
+  train<-ts(matrix(tipologia$TOTAL), frequency =12, start=c(2000,1), end=c(2019,i))
+ fit <- nnetar(train, lambda="auto") 
+ fcast <- forecast(fit, PI=TRUE, h=12-i)
+  resultados<-cbind(resultados,c(rep(NA,i),fcast$mean))
+}
+colnames(resultados)<- c('Gener','Febrer','Març','Abril','Maig','Juny','Juliol','Agost','Setembre','Octubre','Novembre','Desembre')
+print(resultados)
+
+view(resultados)
+
+```

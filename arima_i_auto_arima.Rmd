@@ -1,0 +1,348 @@
+---
+title: "PROVA"
+author: "Clara Zaldivar"
+date: "18/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(forecast)
+#install.packages("TSstudio")
+library(TSstudio)
+library(plotly)
+library(tidyverse)
+library(stats)
+library(forecast)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(dygraphs)
+library(lubridate)
+library(datasets)
+#install.packages("h2o")
+library(base)
+library(h2o)
+#install.packages("Quandl")
+library(Quandl)
+#install.packages("ggfortify")
+library(ggfortify)
+library(Metrics)
+```
+
+Carreguem les dades
+```{r}
+tipologia<-read.csv2("tipologia.csv", stringsAsFactors = FALSE)
+
+df <- ts(matrix(tipologia$TOTAL), frequency =12, start=c(2000,1), end=c(2019,12))
+ts_info(df)
+```
+
+
+train i test
+```{r}
+train<-ts(matrix(tipologia$TOTAL), frequency =12, start=c(2000,1), end=c(2018,12))
+test<-ts(matrix(tipologia$TOTAL[229:240]), frequency =12, start=c(2019,1), end=c(2019,12))
+```
+
+
+```{r}
+
+dygraph(train, main="Turistes a Espanya") %>%
+  dyAxis("x", drawGrid = FALSE, label="Any", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Nombre de turistes")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "M",  drawPoints = TRUE, pointSize = 2)
+
+```
+
+
+```{r}
+ts_seasonal(train, type = "all")
+```
+
+```{r}
+ts_heatmap(train)
+```
+
+
+```{r}
+ts_lags(train)
+```
+
+
+ACF I PACF
+
+```{r}
+ts_cor(train, lag.max = 150)
+```
+
+
+Diferència estacional
+```{r}
+
+df2<-diff(train, lag=12)
+autoplot(df2) + ggtitle("Total de turistes - Diferència Estacional") + 
+        xlab("Any") + ylab("Nombre de turistes")
+
+dygraph(df2, main="Turistes a Espanya - Diferència Estacional") %>%
+  dyAxis("x", drawGrid = FALSE, label="Any", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Número de turistes")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "M",  drawPoints = TRUE, pointSize = 2)
+
+
+ts_cor(df2, lag.max = 150)
+
+ts_cor(df2, lag.max = 12)
+
+
+```
+
+
+Modelització 
+
+```{r}
+model1<-arima(train,order = c(2,0,2),seasonal = list (order = c(1,1,1)))
+model1
+model2<-auto.arima(train)
+model2
+```
+
+
+# Significaci� (assimpt�tica) coeficients - Valor-p
+
+```{r}
+
+pnorm(c(abs(model1$coef)/sqrt(diag(model1$var.coef))), mean=0, sd=1, lower.tail=FALSE)<0.05
+pnorm(c(abs(model2$coef)/sqrt(diag(model2$var.coef))), mean=0, sd=1, lower.tail=FALSE)<0.05
+
+
+```
+Validació residus
+```{r}
+
+ts_cor(model1$residuals, lag.max = 12)
+ts_cor(model2$residuals, lag.max = 12)
+
+
+```
+
+```{r}
+qqnorm(model1$residuals, sub="Normalitat dels residus Model 1");qqline(model1$residuals)
+shapiro.test(model1$residuals)
+
+
+qqnorm(model2$residuals, sub="Normalitat dels residus Model 2");qqline(model2$residuals)
+shapiro.test(model2$residuals)
+
+hist(model2$residuals)
+```
+```{r}
+kpss<-kpss.test(train)
+
+```
+
+
+normalitat dels residus
+```{r}
+library("fBasics")
+jarqueberaTest(model1$residuals)
+jarqueberaTest(model2$residuals)
+
+normalidad <-shapiro.test(model1$residuals)    # Test de Shapiro-Wilk
+normalidad$p.value  
+
+tsdisplay(residuals(model1), lag.max=12, main='Residuos (2,1,1)')
+autoplot(acf(model1$residuals, plot = FALSE))
+autoplot(pacf(model1$residuals, plot = FALSE))
+ggtsdiag(model1)
+ggtsdiag(model2)
+Box.test(model1$residuals, type="Ljung-Box") 
+Box.test(model2$residuals, type="Ljung-Box") 
+```
+
+```{r}
+acf(model1$residuals,lag.max=140)
+install.packages("FitAR")
+library(FitAR)
+boxresult=LjungBoxTest (model1$residuals,k=2,StartLag=1)
+plot(boxresult[,3],main= "Ljung-Box Q Test", ylab= "P-values", xlab= "Lag")
+qqnorm(model1$residuals)
+qqline(model1$residuals)
+
+Box.test(model1$residuals, lag = 1, type = c("Ljung-Box"), fitdf = 0)
+shapiro.test(model1$residuals)
+```
+
+
+MANUAL
+```{r}
+
+
+train<-ts(matrix(tipologia$TOTAL), frequency =12, start=c(2000,1), end=c(2018,12))
+fit2<-arima(train,order = c(2,0,2),seasonal = list (order = c(1,1,1)))
+fit2
+data2f<-predict(fit2,n.ahead=12)
+data2f
+
+ts.plot(df,data2f$pred,col=1:2, main="Predicció - SARIMA(2,0,2)(1,1,1)[12]", ylab="Número de turistes", xlab="Any"  )
+
+
+
+
+Arima_manual <- cbind(df, data2f$pred)
+Arima_manual
+
+
+
+dygraph(Arima_manual, main="Predicció - SARIMA(2,0,2)(1,1,1)[12]") %>%
+  dySeries("df", label = "Real") %>%
+  dySeries("data2f$pred", label = "Predicció") %>%
+  dyAxis("x", drawGrid = FALSE, label="Any", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Nombre de turistes")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "M",  drawPoints = TRUE, pointSize = 2)
+
+
+#2019
+
+Arima_manual2019 <- cbind(df[229:240], data2f$pred)
+Arima_manual2019
+
+dygraph(Arima_manual2019, main="Predicció (Any 2019) - SARIMA(2,0,2)(1,1,1)[12]") %>%
+  dySeries("df[229:240]", label = "Real") %>%
+  dySeries("data2f$pred", label = "Predicció") %>%
+  dyAxis("x", drawGrid = FALSE, label="Any", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Nombre de turistes")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "M",  drawPoints = TRUE, pointSize = 2)
+```
+
+```{r}
+
+#install.packages("dygraphs")
+library(dygraphs)
+errors<-test-data2f$pred
+errors
+dygraph(errors, main="Errors Predicció - SARIMA(2,0,2)(1,1,1)[12]") %>%
+  dyAxis("x", drawGrid = FALSE, label="Mes", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Errors")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "K", drawPoints = TRUE, pointSize = 2)
+
+
+ts.plot(errors,col=2, main="Errors Predicció - SARIMA(2,0,2)(1,1,1)[12]")
+eqm<-sum(errors*errors)/12
+eqm
+reqm<-eqm^(.5)
+
+eam<-sum(abs(errors))/12
+eam
+epam<-sum(abs(errors)/abs(test))/12
+epam*100
+
+#rmse(test[1:12], data2f$pred[1:12])
+
+resultats_arima<- data.frame(data2f$pred, test, errors)
+colnames(resultats_arima)<-c("Predicció", "Valor Real", "Error")
+rownames(resultats_arima)<-c('Gener','Febrer','Març','Abril','Maig','Juny','Juliol','Agost','Setembre','Octubre','Novembre','Desembre')
+View(resultats_arima)
+```
+
+
+
+AUTO.ARIMA
+
+```{r}
+fit2<-arima(train,order = c(3,0,3),seasonal = list (order = c(2,1,0)))
+fit2
+data2fauto<-predict(fit2,n.ahead=12)
+data2fauto
+
+ts.plot(df,data2fauto$pred,col=1:2, main="Predicció - SARIMA(3,0,3)(2,1,0)[12]", ylab="Número de turistes", xlab="Any"  )
+
+
+Auto_arima <- cbind(df, data2fauto$pred)
+Auto_arima
+
+
+dygraph(Auto_arima, main="Predicció - SARIMA(3,0,3)(2,1,0)[12]") %>%
+  dySeries("df", label = "Real") %>%
+  dySeries("data2fauto$pred", label = "Predicció") %>%
+  dyAxis("x", drawGrid = FALSE, label="Any", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Nombre de turistes")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "M",  drawPoints = TRUE, pointSize = 2)
+
+
+#2019
+
+Auto_arima2019 <- cbind(df[229:240], data2fauto$pred)
+Auto_arima2019
+
+dygraph(Auto_arima2019, main="Predicció (Any 2019) - SARIMA(2,0,2)(1,1,1)[12]") %>%
+  dySeries("df[229:240]", label = "Real") %>%
+  dySeries("data2fauto$pred", label = "Predicció") %>%
+  dyAxis("x", drawGrid = FALSE, label="Any", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Nombre de turistes")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "M",  drawPoints = TRUE, pointSize = 2)
+
+```
+
+
+
+```{r}
+errors<-test-data2fauto$pred
+errors
+ts.plot(errors,col=2, main="Errors Predicció - SARIMA(3,0,3)(2,1,0)[12]")
+
+
+dygraph(errors, main="Errors Predicció - SARIMA(3,0,3)(2,1,0)[12]") %>%
+  dyAxis("x", drawGrid = FALSE, label="Mes", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Errors")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "K", drawPoints = TRUE, pointSize = 2)
+
+eqm<-sum(errors*errors)/12
+eqm
+reqm<-eqm^(.5)
+
+eam<-sum(abs(errors))/12
+eam
+epam<-sum(abs(errors)/abs(test))/12
+epam*100
+
+rmse(test[1:12], data2fauto$pred[1:12] )
+
+resultats_autoarima<- data.frame(data2fauto$pred, test, errors)
+colnames(resultats_autoarima)<-c("Predicció", "Valor Real", "Error")
+rownames(resultats_autoarima)<-c('Gener','Febrer','Març','Abril','Maig','Juny','Juliol','Agost','Setembre','Octubre','Novembre','Desembre')
+view(resultats_autoarima)
+```
+
+
+TAULA 
+
+```{r}
+train<-ts(matrix(tipologia$TOTAL), frequency =12, start=c(2000,1), end=c(2018,12))
+fit2<-arima(train,order = c(3,0,3),seasonal = list (order = c(2,1,0)))
+data2f<-predict(fit2,n.ahead=12)
+
+
+#predicciones hechas a partir enero 2020 hasta diciembre 2020
+resultados <- data.frame(data2f$pred, row.names = c('Gener','Febrer','Març','Abril','Maig','Juny','Juliol','Agost','Setembre','Octubre','Novembre','Desembre'))
+v<-c()
+for (i in 1:11)
+{
+  train<-ts(matrix(tipologia$TOTAL), frequency =12, start=c(2000,1), end=c(2019,i))
+  fit2<-arima(train,order = c(3,0,3),seasonal = list (order = c(2,1,0)))
+  data2f<-predict(fit2,n.ahead=12-i)
+  resultados<-cbind(resultados,c(rep(NA,i),data2f$pred))
+}
+colnames(resultados)<- c('Gener','Febrer','Març','Abril','Maig','Juny','Juliol','Agost','Setembre','Octubre','Novembre','Desembre')
+print(resultados)
+
+view(resultados)
+
+```
+
+
+
+

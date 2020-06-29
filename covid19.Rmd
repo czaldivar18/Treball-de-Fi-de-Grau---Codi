@@ -1,0 +1,95 @@
+---
+title: "Impacte COVID 19"
+author: "Clara Zaldivar"
+date: "6/17/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+tipologia<-read.csv2("tipologia.csv", stringsAsFactors = FALSE)
+
+
+
+
+train<-ts(matrix(tipologia$TOTAL), frequency =12, start=c(2000,1), end=c(2019,12))
+
+tipologia_actual<-read.csv2("tipologia_actual.csv", stringsAsFactors = FALSE)
+df <- ts(matrix(tipologia_actual$TOTAL), frequency =12, start=c(2000,1), end=c(2020,4))
+
+```
+
+
+```{r}
+fit2<-arima(train,order = c(3,0,3),seasonal = list (order = c(2,1,0)))
+fit2
+data2fauto<-predict(fit2,n.ahead=4)
+data2fauto
+```
+
+
+```{r}
+
+Auto_arima <- cbind(df, data2fauto$pred)
+Auto_arima
+
+
+dygraph(Auto_arima, main="Predicció - SARIMA(3,0,3)(2,1,0)[12]") %>%
+  dySeries("df", label = "Real") %>%
+  dySeries("data2fauto$pred", label = "Predicció") %>%
+  dyAxis("x", drawGrid = FALSE, label="Any", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Nombre de turistes")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "M",  drawPoints = TRUE, pointSize = 2)
+
+
+#2020
+
+pred_auto<-ts(matrix(data2fauto$pred[13:16]), frequency =12, start=c(2020,1), end=c(2020,4))
+df_auto<-ts(matrix(tipologia_actual$TOTAL[241:244]), frequency =12, start=c(2020,1), end=c(2020,4))
+
+Auto_arima2020 <- cbind(df_auto,data2fauto$pred)
+Auto_arima2020
+
+dygraph(Auto_arima2020, main="Predicció (Any 2019) - SARIMA(2,0,2)(1,1,1)[12]") %>%
+  dySeries("df_auto", label = "Real") %>%
+  dySeries("data2fauto$pred", label = "Predicció") %>%
+  dyAxis("x", drawGrid = FALSE, label="Any", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Nombre de turistes")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "M",  drawPoints = TRUE, pointSize = 2)
+
+
+```
+
+```{r}
+errors<-df_auto-data2fauto$pred
+errors
+
+ts.plot(errors,col=2, main="Errors Predicció - SARIMA(3,0,3)(2,1,0)[12]")
+
+
+dygraph(errors, main="Errors Predicció - SARIMA(3,0,3)(2,1,0)[12]") %>%
+  dyAxis("x", drawGrid = FALSE, label="Mes", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Errors")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "K", drawPoints = TRUE, pointSize = 2)
+
+eqm<-sum(errors*errors)/12
+eqm
+reqm<-eqm^(.5)
+
+eam<-sum(abs(errors))/12
+eam
+epam<-sum(abs(errors)/abs(df_auto))/12
+epam*100
+
+rmse(df_auto[1:4], pred_auto[1:4] )
+
+resultats_autoarima<- data.frame(data2fauto$pred, test, errors)
+colnames(resultats_autoarima)<-c("Predicció", "Valor Real", "Error")
+rownames(resultats_autoarima)<-c('Gener','Febrer','Març','Abril','Maig','Juny','Juliol','Agost','Setembre','Octubre','Novembre','Desembre')
+view(resultats_autoarima)
+```
