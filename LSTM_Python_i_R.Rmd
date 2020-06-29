@@ -1,0 +1,354 @@
+---
+title: "Treball de Fi de Grau, predicció dels turistes a Espanya amb LSTM mitjançant Python i R"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Importem el paquet reticulate per poder utilitzar python
+```{r}
+#install.packages("reticulate")
+library(reticulate)
+#install.packages("magrittr")
+library(magrittr)
+#install.packages("dplyr")
+library(dplyr)
+#install.packages("dygraphs")
+library(dygraphs)
+```
+
+
+Importem totes les llibreries necessaries en Python
+```{python}
+import numpy as np
+import tensorflow as tf
+from math import sqrt
+from numpy import concatenate
+from matplotlib import pyplot
+import pandas as pd
+from datetime import datetime
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import mean_squared_error
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.layers import LSTM
+from keras.layers import Dropout
+import numpy as np
+
+```
+
+
+
+
+Funció per netejar la pantalla
+```{python}
+class Cleaner:
+    def _init_(self):
+        self.reset()
+    def reset(self):
+        self.keep = set(globals());
+    def clean(self):
+        g = list(globals())
+        for __i in g:
+            if __i not in self.keep:
+                     
+                del globals()[__i]
+```
+
+```{python}
+Cleaner()
+```
+
+Importem les dades: 
+```{python}
+df=pd.read_csv('Tipologia.csv',sep=';')
+df['Date']=pd.to_datetime(df['Date'], format='%d/%m/%y')#Volem tenir el mes en index
+df= df.set_index('Date')
+df.head()
+
+```
+
+
+Escalem 
+```{python}
+
+from sklearn.preprocessing import MinMaxScaler
+values = df['TOTAL'].values.reshape(-1,1)
+values = values.astype('float32')
+scaler = MinMaxScaler(feature_range=(0, 1))
+escal = scaler.fit_transform(values)
+```
+
+
+Separem entre train i test
+```{python}
+train_size = int(len(escal) * 0.90) 
+test_size = len(escal) - train_size
+train, test = escal[0:train_size,:], escal[train_size:len(escal),:]
+print(len(train), len(test))
+```
+```{python}
+len(escal)
+```
+
+```{python}
+def create_dataset(dataset, look_back=1):
+    dataX, dataY = [], []
+    for i in range(len(dataset) - look_back):
+        a = dataset[i:(i + look_back), 0]
+        dataX.append(a)
+        dataY.append(dataset[i + look_back, 0])
+    print(len(dataY))
+    return np.array(dataX), np.array(dataY)
+```
+
+Volem mirar 12 observacions anteriors per obtenir una predicció futura
+```{python}
+look_back = 12
+trainX, trainY = create_dataset(train, look_back)
+testX, testY = create_dataset(test, look_back)
+```
+
+```{python}
+trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], 1))
+testX = np.reshape(testX, (testX.shape[0],  testX.shape[1], 1))
+
+```
+
+
+
+MODELITZACIÓ
+```{python}
+
+np.random.seed(34)
+tf.random.set_seed(34)
+
+from keras.callbacks import EarlyStopping
+model = Sequential()
+model.add(LSTM(10, input_shape=(look_back, 1))) #1O units, imput_shape=[12,1]
+model.add(Dense(1)) #capa de sortida
+model.compile(loss='mae', optimizer='adam')
+model.summary()
+
+history_uni = model.fit(trainX, trainY, batch_size=1, epochs=200, 
+                           validation_data=(testX, testY), shuffle=False,
+                          verbose=0)
+                          
+                         # , callbacks = [EarlyStopping(monitor='val_loss', patience=15)]
+```
+
+
+
+```{python}
+pyplot.plot(history_uni.history['loss'], label='Entrenament')
+pyplot.plot(history_uni.history['val_loss'], label='Prova')
+pyplot.legend()
+pyplot.show()
+```
+
+
+```{python}
+yhat = model.predict(testX)
+pyplot.plot(yhat, label='predict')
+pyplot.plot(testY, label='true')
+pyplot.legend()
+pyplot.show()
+```
+
+```{python}
+yhat_inverse = scaler.inverse_transform(yhat.reshape(-1, 1))
+testY_inverse = scaler.inverse_transform(testY.reshape(-1, 1))
+```
+
+```{python}
+yhat_inverse
+
+```
+
+```{python}
+rmse = sqrt(mean_squared_error(testY_inverse, yhat_inverse))
+print('Test RMSE: %.2f' % rmse)
+```
+
+```{python}
+pyplot.plot(yhat_inverse, label='predict')
+pyplot.plot(testY_inverse, label='actual', alpha=0.5)
+pyplot.legend()
+pyplot.show()
+```
+
+
+```{python}
+
+df_forecast = pd.DataFrame(columns=["TOTAL","PREDICCIONS"],index=df.index[228:])
+df_forecast
+```
+
+```{python}
+df_forecast.loc[:,"PREDICCIONS"] = yhat_inverse
+df_forecast.loc[:,"TOTAL"] = df.TOTAL[228:]
+df_forecast
+
+
+```
+
+
+```{r}
+library(reticulate)
+preds<-py$df_forecast[,2]
+preds<-ts(matrix(preds), frequency =12, start=c(2019,1), end=c(2019,12))
+preds
+```
+
+```{r}
+tipologia<-read.csv2("tipologia.csv", stringsAsFactors = FALSE)
+
+df <- ts(matrix(tipologia$TOTAL), frequency =12, start=c(2000,1), end=c(2019,12))
+```
+
+```{r}
+LSTM <- cbind(df, preds)
+
+
+dygraph(LSTM , main="Predicció -  Long-Short Term Memory") %>%
+  dySeries("df", label = "Real") %>%
+  dySeries("preds", label = "Predicció") %>%
+  dyAxis("x", drawGrid = FALSE, label="Any", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Nombre de turistes")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "M",  drawPoints = TRUE, pointSize = 2)
+
+LSTM2019 <- cbind(df[229:240], preds)
+dygraph(LSTM2019 , main="Predicció -  Long-Short Term Memory") %>%
+  dySeries("df[229:240]", label = "Real") %>%
+  dySeries("preds", label = "Predicció") %>%
+  dyAxis("x", drawGrid = FALSE, label="Any", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Nombre de turistes")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "M",  drawPoints = TRUE, pointSize = 2)
+
+```
+
+```{r}
+errors<-df[229:240]-preds[1:12]
+errors
+
+errors<-ts(matrix(errors), frequency =12, start=c(2019,1), end=c(2019,12))
+ts.plot(errors,col=2, main="Errors Predicció - LSTM")
+
+dygraph(errors, main="Errors Predicció -Long-Short Term Memory") %>%
+  dyAxis("x", drawGrid = FALSE, label="Mes", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Errors")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "K", drawPoints = TRUE, pointSize = 2)
+
+eqm<-sum(errors*errors)/12
+eqm
+reqm<-eqm^(.5)
+reqm
+eam<-sum(abs(errors))/12
+eam
+epam<-sum(abs(errors)/abs(df[229:240]))/12
+epam*100
+```
+
+
+
+GRÀFIC CONJUNT: 
+
+
+```{r}
+
+
+library(forecast)
+train<-ts(matrix(tipologia$TOTAL), frequency =12, start=c(2000,1), end=c(2018,12))
+#ARIMA MANUAL
+fit2<-arima(train,order = c(2,0,2),seasonal = list (order = c(1,1,1)))
+fit2
+data2f<-predict(fit2,n.ahead=12)
+data2f
+
+#AUTO.ARIMA
+fit2<-arima(train,order = c(3,0,3),seasonal = list (order = c(2,1,0)))
+fit2
+data2fauto<-predict(fit2,n.ahead=12)
+data2fauto
+
+set.seed(34)
+#NNAR
+fit <- nnetar(train, lambda="auto") 
+fit
+fcast <- forecast(fit, PI=TRUE, h=12)
+fcast
+
+
+G<-cbind(df,data2f$pred,data2fauto$pred, fcast$mean, preds)
+colnames(G)<-c("REAL", "ARIMA MANUAL", "AUTO.ARIMA","NNAR", "LSTM")
+
+
+
+dygraph(G , main="PREDICCIONS") %>%
+  dySeries("REAL",color="orange", strokeWidth = 3)%>%
+  dySeries("ARIMA MANUAL", color="#336633", strokeWidth = 2)%>%
+  dySeries("AUTO.ARIMA",  color="#0066CC", strokeWidth = 2)%>%
+  dySeries("NNAR", color="#99CCFF", strokeWidth = 2)%>%
+  dySeries("LSTM",  color="#66CC66", strokeWidth = 2)%>%
+  dyAxis("x", drawGrid = FALSE, label="Any", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Nombre de turistes")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "M",  drawPoints = TRUE, pointSize = 4)
+
+
+
+G2019<-cbind(df[229:240],data2f$pred,data2fauto$pred, fcast$mean, preds)
+colnames(G2019)<-c("REAL", "ARIMA MANUAL", "AUTO.ARIMA","NNAR", "LSTM")
+
+dygraph(G2019 , main="PREDICCIONS") %>%
+  dySeries("REAL",color="orange", strokeWidth = 3)%>%
+  dySeries("ARIMA MANUAL", color="#336633", strokeWidth = 2)%>%
+  dySeries("AUTO.ARIMA",  color="#0066CC", strokeWidth = 2)%>%
+  dySeries("NNAR", color="#99CCFF", strokeWidth = 2)%>%
+  dySeries("LSTM",  color="#66CC66", strokeWidth = 2)%>%
+  dyAxis("x", drawGrid = FALSE, label="Any", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Nombre de turistes")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "M",  drawPoints = TRUE, pointSize = 4)
+ 
+```
+
+ERRORS
+
+
+```{r}
+test<-ts(tipologia$TOTAL[229:240], frequency =12, start=c(2019,1), end=c(2019,12))
+#ARIMA MANUAL
+errorsMANUAL<-test-data2f$pred
+errorsMANUAL
+#AUTO.ARIMA
+errorsAUTO<-test-data2fauto$pred
+errorsAUTO
+#NNAR
+errorsNNAR<-test[1:12]-fcast$mean[1:12]
+errorsNNAR
+
+errorsNNAR<-ts(matrix(errorsNNAR), frequency =12, start=c(2019,1), end=c(2019,12))
+
+#LSTM
+errorsLSTM<-df[229:240]-preds[1:12]
+
+errorsLSTM<-ts(matrix(errorsLSTM), frequency =12, start=c(2019,1), end=c(2019,12))
+ts.plot(errors,col=2, main="Errors Predicció - LSTM")
+
+errors<-cbind(errorsMANUAL, errorsAUTO, errorsNNAR, errorsLSTM)
+colnames(errors)<-c("ARIMA MANUAL", "AUTO.ARIMA","NNAR", "LSTM")
+
+dygraph(errors, main="Errors Predicció") %>%
+  dySeries("ARIMA MANUAL", color="#336633", strokeWidth = 2)%>%
+  dySeries("AUTO.ARIMA",  color="#0066CC", strokeWidth = 2)%>%
+  dySeries("NNAR", color="#99CCFF", strokeWidth = 2)%>%
+  dySeries("LSTM",  color="#66CC66", strokeWidth = 2)%>%
+  dyAxis("x", drawGrid = FALSE, label="Mes", ) %>%
+  dyAxis("y", drawGrid = FALSE, label="Errors")  %>%
+  dyOptions(maxNumberWidth = 20, labelsKMB = "K", drawPoints = TRUE, pointSize = 3)
+
+
+```
+
